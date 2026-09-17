@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css">
+    <title>Document</title>
+</head>
+<body>
+    <div class="app">
+        <nav>
+        <span>Dashboard</span>
+        <span>Last updated: Today</span>
+        </nav>
+
+        <aside>
+            <h4>Emissions watch</h4>
+        <ul>
+            <li><a href="#">Dashboard</a></li>
+            <li><a href="#">Facilities</a></li>
+            <li><a href="#">Search and Filter</a></li>
+            <li><a href="#">Trends</a></li>
+            <li><a href="#">Upload Data</a></li>
+            <li><a href="#">Help</a></li>
+        </ul>
+        </aside>
+        
+        <main>
+            <header>
+                <h2>Facilities Overview</h2>
+                <div class="top">
+                    <small>EPA CAMPdata Annual Report</small>
+                    <form class="search-bar" role="search">
+                        <input type="search" name="search" placeholder="Search facilities" aria-label="Search facilities">
+                        <button type="submit" aria-label="Search">&#128269;</button>
+                    </form>
+                </div>
+
+                <form class="filters" id="filtersForm">
+                    <label>
+                        State
+                        <select id="stateFilter" name="state">
+                            <option value="">All states</option>
+                            <option value="KY">Kentucky</option>
+                            <option value="OH">Ohio</option>
+                            <option value="IN">Indiana</option>
+                            <option value="TN">Tennessee</option>
+                            <option value="WV">West Virginia</option>
+                            <option value="VA">Virginia</option>
+                            <option value="IL">Illinois</option>
+                        </select>
+                    </label>
+
+                    <label>
+                        Year
+                        <input type="number" id="yearFilter" name="year" value="2024" min="1995" max="2026" required>
+                    </label>
+
+                    <label>
+                        Unit type
+                        <input type="text" id="unitFilter" name="unit" placeholder="e.g. Boiler">
+                    </label>
+
+                    <button type="submit">Apply filters</button>
+                </form>
+
+                <ul>
+                    <li>
+                        <span>Facilities</span>
+                        <strong>1,248</strong>
+                    </li>
+                    <li>
+                        <span>Total CO2</span>
+                        <strong>24,680 t</strong>
+                    </li>
+                    <li>
+                        <span>Total SO2</span>
+                        <strong>184 t</strong>
+                    </li>
+                    <li>
+                        <span>Dataset Imported</span>
+                        <strong>Sep 14, 2026</strong>
+                    </li>
+                </ul>
+            </header>
+            
+            <section>
+                <section class="trend-chart">
+                <h4>Annual emissions trend</h4>
+                <canvas id="trendChart"></canvas>
+            </section>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+            </section>
+            <section>
+               <div class="table-header">
+                <h4>Emissions records</h4>
+                <div class="table-actions">
+                    <button id="viewFullTableButton" type="button">View full table</button>
+                    <button id="exportButton" type="button">Export CSV</button>
+                </div>
+               </div>
+               <table>
+            <thead>
+                <tr>
+                <th>Facility</th>
+                <th>State</th>
+                <th>Unit</th>
+                <th>CO2</th>
+                <th>SO2</th>
+                <th>Reporting Year</th>
+                </tr>
+            </thead>
+
+            <tbody id="emissionsRows">
+                <tr><td colspan="6">Loading emissions data...</td></tr>
+            </tbody>
+            </table>
+
+            </section>
+        </main>
+    </div>
+    <script>
+        const searchForm = document.querySelector(".search-bar")
+        const searchInput = searchForm.querySelector("input[name=search]")
+        const filtersForm = document.querySelector("#filtersForm")
+        const stateFilter = document.querySelector("#stateFilter")
+        const yearFilter = document.querySelector("#yearFilter")
+        const unitFilter = document.querySelector("#unitFilter")
+        const exportButton = document.querySelector("#exportButton")
+        const viewFullTableButton = document.querySelector("#viewFullTableButton")
+        const emissionsRows = document.querySelector("#emissionsRows")
+        let latestRecords = []
+        let showingFullTable = false
+
+        function recordsFromResponse(response) {
+            if (Array.isArray(response)) return response
+            if (Array.isArray(response.items)) return response.items
+            if (Array.isArray(response.data)) return response.data
+            if (Array.isArray(response.results)) return response.results
+            return []
+        }
+
+        function value(record, ...names) {
+            const key = names.find(name => record[name] !== undefined)
+            return key ? record[key] : ""
+        }
+
+        function renderEmissions(response) {
+            latestRecords = recordsFromResponse(response)
+            const records = showingFullTable ? latestRecords : latestRecords.slice(0, 15)
+            emissionsRows.replaceChildren()
+
+            if (!records.length) {
+                emissionsRows.innerHTML = '<tr><td colspan="6">No emissions records found.</td></tr>'
+                return
+            }
+
+            for (const record of records) {
+                const row = document.createElement("tr")
+                for (const text of [
+                    value(record, "facility_name", "facilityName", "name"),
+                    value(record, "state", "state_code", "stateCode"),
+                    value(record, "unit_id", "unitId", "unit"),
+                    value(record, "co2_mass", "co2Mass", "co2"),
+                    value(record, "so2_mass", "so2Mass", "so2"),
+                    value(record, "year", "reporting_year", "reportingYear")
+                ]) {
+                    const cell = document.createElement("td")
+                    cell.textContent = text
+                    row.append(cell)
+                }
+                emissionsRows.append(row)
+            }
+
+            viewFullTableButton.textContent = showingFullTable ? "Show first 15 rows" : "View full table"
+        }
+
+        // Builds the query string sent to /api/emissions from whatever
+        // the user currently has set in the filter controls + search box.
+        function currentFilterParams() {
+            const params = new URLSearchParams()
+
+            if (stateFilter.value) params.set("state", stateFilter.value)
+            if (yearFilter.value) params.set("year", yearFilter.value)
+            if (unitFilter.value.trim()) params.set("unit", unitFilter.value.trim())
+            if (searchInput.value.trim()) params.set("facility", searchInput.value.trim())
+
+            return params
+        }
+
+        async function loadEmissions() {
+            const params = currentFilterParams()
+
+            emissionsRows.innerHTML = '<tr><td colspan="6">Loading emissions data...</td></tr>'
+
+            try {
+                const response = await fetch(`/api/emissions?${params}`)
+                const data = await response.json()
+                if (!response.ok) throw new Error(data.error || "Unable to load emissions")
+                renderEmissions(data)
+            } catch (error) {
+                emissionsRows.innerHTML = `<tr><td colspan="6">${error.message}</td></tr>`
+            }
+        }
+
+        function exportDatasets() {
+            const params = new URLSearchParams()
+            if (searchInput.value.trim()) {
+                params.set("search", searchInput.value.trim())
+            }
+            if (yearFilter.value) {
+                params.set("year", yearFilter.value)
+            }
+
+            const exportUrl = `http://localhost:3000/api/export.csv${params.toString() ? `?${params}` : ""}`
+            window.location.href = exportUrl
+        }
+
+        exportButton.addEventListener("click", exportDatasets)
+
+        viewFullTableButton.addEventListener("click", () => {
+            showingFullTable = !showingFullTable
+            renderEmissions(latestRecords)
+        })
+
+        searchForm.addEventListener("submit", event => {
+            event.preventDefault()
+            loadEmissions()
+        })
+
+        filtersForm.addEventListener("submit", event => {
+            event.preventDefault()
+            loadEmissions()
+        })
+
+        loadEmissions()
+    </script>
+</body>
+</html>
